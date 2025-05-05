@@ -1,24 +1,78 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
+import os
+from datetime import datetime
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
+@register("message_board", "YuiLittle", "一个用于记录群聊留言的插件", "1.0.0", "")
+class MessageLoggerPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
+        self.file_path = os.path.join("data", "plugins", "message_board", "留言.txt")
+        os.makedirs(os.path.dirname(self.file_path), exist_ok=True)
+        self.admin_qq = "你的QQ"
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-    
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
+    @filter.command("留言")
+    async def log_message(self, event: AstrMessageEvent, content: str):
+        """
+        命令格式：/留言 内容
+        """
+        try:
+            sender_id = event.get_sender_id()
+            sender_name = event.get_sender_name()
+            group_id = event.get_group_id()
+            timestamp = datetime.now().strftime("%Y年%m月%d日 %H时%M分%S秒")
+            
+            if group_id:  
+                log_entry = (
+                    f"时间: {timestamp}\n"
+                    f"群聊号码: {group_id}\n"
+                    f"用户QQ: {sender_id}\n"
+                    f"用户名字: {sender_name}\n"
+                    f"留言内容: {content}\n"
+                    f"状态: 未解决\n"
+                    "------------------------\n"
+                )
+            else:  
+                log_entry = (
+                    f"时间: {timestamp}\n"
+                    f"用户QQ: {sender_id}\n"
+                    f"用户名字: {sender_name}\n"
+                    f"留言内容: {content}\n"
+                    f"状态: 未解决\n"
+                    "------------------------\n"
+                )
+
+            with open(self.file_path, "a", encoding="utf-8") as f:
+                f.write(log_entry)
+
+            logger.info(f"已记录留言，用户: {sender_name} ({sender_id}), 内容: {content}")
+
+            if event.get_platform_name() == "aiocqhttp":
+                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
+                if isinstance(event, AiocqhttpMessageEvent):
+                    client = event.bot
+                    await client.api.call_action(
+                        'send_private_msg',
+                        user_id=int(self.admin_qq),
+                        message=f"你收到一条新的留言，请前往 {self.file_path} 查看"
+                    )
+                    logger.info(f"已通过 API 向管理员 {self.admin_qq} 发送通知")
+                else:
+                    logger.error("事件类型不匹配，无法获取 aiocqhttp 客户端")
+                    yield event.plain_result("记录留言成功，但通知管理员失败。")
+            else:
+                logger.error("当前平台不是 aiocqhttp，无法发送通知")
+                yield event.plain_result("记录留言成功，但通知管理员失败。")
+
+            yield event.plain_result("你的留言已记录，管理员会尽快处理。")
+
+        except Exception as e:
+            logger.error(f"记录留言时发生错误: {str(e)}")
+            yield event.plain_result("记录留言失败，请稍后再试或联系管理员。")
 
     async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+        """
+        插件卸载时的清理工作，此处无特殊资源需要释放。
+        """
+        logger.info("留言记录插件已卸载")
