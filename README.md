@@ -1,8 +1,8 @@
-# helloworld
+# message_board
 
-AstrBot 插件模板
+留言
 
-A template plugin for AstrBot plugin feature
+留言保存到本地，并通知管理员
 
 # 支持
 
